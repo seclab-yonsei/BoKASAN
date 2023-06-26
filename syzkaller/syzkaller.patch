@@ -1,0 +1,85 @@
+diff --git a/executor/common.h b/executor/common.h
+index b5a1ba593..3e9b84865 100644
+--- a/executor/common.h
++++ b/executor/common.h
+@@ -15,6 +15,14 @@
+ #define _GNU_SOURCE
+ #endif
+ 
++#define             IOCTL_MAGIC         'K'
++#define             SET_PID            _IO(IOCTL_MAGIC, 0)
++#define			 	REMOVE_PID		   _IO(IOCTL_MAGIC, 1)
++typedef struct{
++	pid_t pid;
++} __attribute__ ((packed)) pidd_info;
++
++
+ #if GOOS_freebsd || GOOS_test && HOSTGOOS_freebsd
+ #include <sys/endian.h> // for htobe*.
+ #elif GOOS_windows
+diff --git a/executor/executor.cc b/executor/executor.cc
+index 35123b32d..463ce26d4 100644
+--- a/executor/executor.cc
++++ b/executor/executor.cc
+@@ -1104,6 +1104,17 @@ void* worker_thread(void* arg)
+ 	for (;;) {
+ 		event_wait(&th->ready);
+ 		event_reset(&th->ready);
++
++		int fd = open("/dev/kasan0", O_RDWR);
++		pidd_info info;
++		info.pid = syscall(SYS_gettid);
++
++		debug("[BOKASAN] worker_thread_ttid: %d\n", info.pid);
++
++		if( ioctl(fd, SET_PID, &info) < 0) {
++			debug("[BOKASAN] Register ttid failed\n");
++		}
++
+ 		execute_call(th);
+ 		event_set(&th->done);
+ 	}
+diff --git a/pkg/report/linux.go b/pkg/report/linux.go
+index badad8ec3..bceb30625 100644
+--- a/pkg/report/linux.go
++++ b/pkg/report/linux.go
+@@ -1267,7 +1267,7 @@ var linuxOopses = append([]*oops{
+ 			compile("BUG: no syscalls can create resource"),
+ 		},
+ 	},
+-	{
++	/*{
+ 		[]byte("WARNING:"),
+ 		[]oopsFormat{
+ 			{
+@@ -1431,7 +1431,7 @@ var linuxOopses = append([]*oops{
+ 			compile("WARNING: /etc/ssh/moduli does not exist, using fixed modulus"), // printed by sshd
+ 			compile("WARNING: workqueue cpumask: online intersect > possible intersect"),
+ 		},
+-	},
++	},*/
+ 	{
+ 		[]byte("INFO:"),
+ 		[]oopsFormat{
+diff --git a/vm/qemu/qemu.go b/vm/qemu/qemu.go
+index 5ada86950..06eb0bd3e 100644
+--- a/vm/qemu/qemu.go
++++ b/vm/qemu/qemu.go
+@@ -134,6 +134,8 @@ var archConfigs = map[string]*archConfig{
+ 			"kvm-intel.enable_shadow_vmcs=1",
+ 			"kvm-intel.pml=1",
+ 			"kvm-intel.enable_apicv=1",
++			"nokaslr",
++			"selinux=0",
+ 		),
+ 	},
+ 	"linux/386": {
+@@ -238,7 +240,7 @@ var linuxCmdline = []string{
+ 	"earlyprintk=serial",
+ 	"oops=panic",
+ 	"nmi_watchdog=panic",
+-	"panic_on_warn=1",
++	"panic_on_warn=0",
+ 	"panic=1",
+ 	"ftrace_dump_on_oops=orig_cpu",
+ 	"vsyscall=native",
